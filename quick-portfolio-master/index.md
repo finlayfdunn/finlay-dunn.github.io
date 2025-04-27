@@ -1,31 +1,26 @@
-## Portfolio
+---
+layout: default
+title: Portfolio
+---
+
+# Portfolio
 
 ---
 
-### Category Name 1 
+## Home Credit Credit Risk Analytics Project
 
-[Project 1 Title](/sample_page)
-<img src="images/dummy_thumbnail.jpg?raw=true"/>
-
----
-[Project 2 Title](/pdf/sample_presentation.pdf)
-<img src="images/dummy_thumbnail.jpg?raw=true"/>
-
----
-[Project 3 Title](http://example.com/)
-<img src="images/dummy_thumbnail.jpg?raw=true"/>
+- [![Project 1](homecredit.png)](https://github.com/finlayfdunn/finlay-dunn.github.io/blob/main/EDA_Finlay.Rmd)
+- [![Project 2](home_credit_picture.png)](https://github.com/finlayfdunn/finlay-dunn.github.io/blob/main/Modeling_Resubmit.Rmd)
 
 ---
 
-### Category Name 2
+## Data Engineering CBB Analytics Project
 
-- [Project 1 Title](http://example.com/)
-- [Project 2 Title](http://example.com/)
-- [Project 3 Title](http://example.com/)
-- [Project 4 Title](http://example.com/)
-- [Project 5 Title](http://example.com/)
+- [![Engineering Project](cbbtop10.png)](https://github.com/finlayfdunn/finlay-dunn.github.io/blob/main/DataEngineering_Project.ipynb)
 
 ---
+
+
 
 
 
