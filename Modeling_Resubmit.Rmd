@@ -1,0 +1,1057 @@
+---
+title: "Modeling Resubmission"
+author: "Group 1"
+date: "2025-03-22"
+output: 
+  html_document:
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction 
+## Business Problem
+The business problem for this project is that unfortunately, many people in the world today struggle mightily to get loans due to a sub par or absent credit history. This is a problem because these people are often too eager and get taken advantage of by dishonest lenders. Home Credit aims to decrease the unbanked population by providing a clear and safe loan experience.The analytics problem is to basically use data such as a client's previous credits, credit score, monthly balance, etc to predict their ability to pay back the loan. We need to create a model that can accurately predict based on predictors whether a person is going to default on their loan. 
+
+## Data Description
+First, regarding the train dataset, the target variable is actually called TARGET. It is equal to 1 if it is a client with payment difficulties such as late payments on a loan and equal to 0 otherwise. One variable is an ID variable, but the remaining 120 are potential explanatory variables of the TARGET. These variables illustrate a variety of different aspects of the client's life and specifics about loans. Some examples of variables are gender, income of the client, loan annuity, the education level of the client, and the family status of the client. There are many other variable including three important ones that give external credit scores for the client. There are numerous variables about the building where the client lives such as information about the apartments, floors, land area, and entrances. For each one of these building variables, the dataset includes the average, mode, and median for them as separate columns. There are also 20 flag document variables which say if the client provided a certain document or not. There are a few other datasets. We only focused on one other one which was the bureau data. The bureau dataset holds all client's previous credits from other financial institutions if they have a loan in the sample. The variables in this dataset include the status of the Credit Bureau reported credits, the number of days past due, and the current credit amount. 
+
+# Set Up
+## Import packages and data
+```{r packages, , echo=TRUE, results='hide'}
+library(dplyr)
+library(skimr)
+library(janitor)
+library(ggplot2)
+library(pROC) 
+library(tidyverse)
+library(e1071)
+library(caret)
+library(broom)
+library(scales)
+train <- read.csv("application_train.csv")
+test <- read.csv("application_test.csv")
+# other files
+bureau <- read.csv("bureau.csv")
+bureau_balance <- read.csv("bureau_balance.csv")
+creditcard_balance <- read.csv("credit_card_balance.csv")
+installments_payments <- read.csv("installments_payments.csv")
+pos_cash_balance <- read.csv("POS_CASH_balance.csv")
+previous_application <- read.csv("previous_application.csv")
+
+train$TARGET
+```
+
+# Main Data Preparation
+
+## Missing Data
+```{r count missings, echo=TRUE, results='hide'}
+# function to find missing data
+count_missings <- function(x) sum(is.na(x))
+
+# finding missing for all columns
+train |> 
+  summarize_all(count_missings) # Handy summarize_all function
+
+```
+
+## Discussion of Missing Data
+There are a ton of missing values in the train dataset and also some in the bureau csv. I thought about multiple different ways to handle the nulls. The first thing I decided to do was to remove columns with 200000 or more NAs (about 65%). The next thing I did was find variables with little to no variance and remove those. Often the variables with extremely small standard deviations also included lots of nulls. To handle nulls for categorical variables, I made them all factors and NA is one of the levels (if I did this right. Will be revisited in next step). The final strategy was binning. I binned the three external credit score variables and made missing one of the bins. I may do this with more variables in the future if I need to. In the Bureau dataset there are less NAs, and I only removed two columns due to majority Nulls. I did make all the character variables factors again. 
+
+## Train data
+```{r clean train, , echo=TRUE, results='hide'}
+# This will give us an idea of spread and outliers
+summary(train)
+# First we will make all the days vars positive rather than negative
+train_clean <- train |>
+  mutate(across(c(DAYS_BIRTH, DAYS_EMPLOYED, DAYS_REGISTRATION, DAYS_ID_PUBLISH, DAYS_LAST_PHONE_CHANGE), abs))
+
+summary(train_clean$DAYS_BIRTH) # Now all the days variables are positive
+
+# The next thing to do is to remove all columns where there are 200,000 or more NA's. 65% NAs in the column is not worth the trouble of cleaning
+
+train_clean <- train_clean %>% 
+  select(-YEARS_BUILD_AVG, -OWN_CAR_AGE, -COMMONAREA_AVG, -FLOORSMIN_AVG, -LIVINGAPARTMENTS_AVG, 
+         -NONLIVINGAPARTMENTS_AVG, -YEARS_BUILD_MODE, -COMMONAREA_MODE, -FLOORSMIN_MODE, -LIVINGAPARTMENTS_MODE, -NONLIVINGAPARTMENTS_MODE, -YEARS_BUILD_MEDI, -COMMONAREA_MEDI, -FLOORSMIN_MEDI, -NONLIVINGAPARTMENTS_MEDI, -LIVINGAPARTMENTS_MEDI)
+
+# There are still a lot of columns with a ton of nulls. We are now going to look at standard deviations to see if any are 0 or near 0
+
+options(scipen = 999)  # Run this so we dont get scientific notation output anymore
+
+
+train_clean %>% 
+  summarise(across(everything(), ~ sd(.x, na.rm = TRUE))) |>
+  t()
+
+# with some of the low standard deviations we are going to make tables to see what the data looks like
+table(train_clean$FLAG_MOBIL) # 307510 1s and 1 0 so we will delete this variable
+table(train_clean$REGION_POPULATION_RELATIVE) # worth keeping due to variety
+table(train_clean$FLAG_DOCUMENT_2) # almost all 0s so we will delete this column
+table(train_clean$FLAG_DOCUMENT_4) # Once again almost all 0s so we will delete
+table(train_clean$FLAG_DOCUMENT_7) # Once again almost all 0s so we will delete
+table(train_clean$FLAG_DOCUMENT_10) # Only seven 1s in the whole dataset so we will delete
+table(train_clean$FLAG_DOCUMENT_12) # Two 1s in the whole dataset so we will delete
+table(train_clean$FLAG_DOCUMENT_17) # Once again almost all 0s so we will delete
+table(train_clean$FLAG_DOCUMENT_21) # Once again almost all 0s so we will delete
+
+# Now we will delete those variables
+train_clean <- train_clean |>
+  select(-FLAG_MOBIL, -FLAG_DOCUMENT_2, -FLAG_DOCUMENT_4, -FLAG_DOCUMENT_7, -FLAG_DOCUMENT_10, -FLAG_DOCUMENT_12, -FLAG_DOCUMENT_17, -FLAG_DOCUMENT_21)
+
+# Now we need to look at the character vars to see if they need to become factors
+table(train_clean$NAME_CONTRACT_TYPE) # Two levels so we will make it a factor
+table(train_clean$CODE_GENDER) # will factor
+table(train_clean$FLAG_OWN_CAR) # will factor
+table(train_clean$FLAG_OWN_REALTY) # will factor
+table(train_clean$NAME_TYPE_SUITE) # wont factor. Will probably not use
+table(train_clean$NAME_INCOME_TYPE) # probably will not. Levels do not make much sense
+table(train_clean$NAME_EDUCATION_TYPE) # will factor
+table(train_clean$NAME_FAMILY_STATUS) # will factor
+table(train_clean$NAME_HOUSING_TYPE) # will factor
+table(train_clean$OCCUPATION_TYPE) # too many levels to want to factor
+table(train_clean$WEEKDAY_APPR_PROCESS_START) # could factor. Not sure why this would impact target
+ # too many levels that do not make much sense as levels
+table(train_clean$FONDKAPREMONT_MODE) # not sure what this one means
+table(train_clean$HOUSETYPE_MODE) # could factor
+table(train_clean$WALLSMATERIAL_MODE) # could factor if we really want
+table(train_clean$EMERGENCYSTATE_MODE) # could if we want. Lots of nulls
+
+# Decided that I am just going to factor every character variable. Because otherwise the character variables will not be very much use to us. We can decide later which variables to use
+# Now lets do some factoring of those variables
+train_clean <- train_clean |> 
+  mutate(across(where(is.character), as.factor))
+
+str(train_clean$NAME_CONTRACT_TYPE) # double checking that it worked
+
+
+# Now we want to find correlations between the remaining variables and the target variable to potentially identify 
+cor(train_clean$TARGET, train_clean$AMT_INCOME_TOTAL)
+cor(train_clean$TARGET, train_clean$AMT_CREDIT)
+cor(train_clean$TARGET, train_clean$AMT_ANNUITY, use = "complete.obs")
+cor(train_clean$TARGET, train_clean$DAYS_BIRTH)
+cor(train_clean$TARGET, train_clean$CNT_FAM_MEMBERS, use = "complete.obs")
+
+
+str(train_clean$EXT_SOURCE_1)
+str(train_clean$AMT_INCOME_TOTAL)
+str(train_clean$AMT_ANNUITY)
+
+# Now we are going to bin the three credit score variables due to the NA count
+summary(train_clean$EXT_SOURCE_1)
+train_clean <- train_clean |>
+  mutate(EXT_SOURCE_1 = case_when(
+    is.na(EXT_SOURCE_1) ~ "Missing",
+    EXT_SOURCE_1 < 0.25 ~ "Low",
+    EXT_SOURCE_1 < 0.50 ~ "Medium",
+    EXT_SOURCE_1 < 0.75 ~ "High",
+    EXT_SOURCE_1 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+summary(train_clean$EXT_SOURCE_3)
+
+# We are going to do this for the other two credit score variables as well
+train_clean <- train_clean |>
+  mutate(EXT_SOURCE_2 = case_when(
+    is.na(EXT_SOURCE_2) ~ "Missing",
+    EXT_SOURCE_2 < 0.25 ~ "Low",
+    EXT_SOURCE_2 < 0.50 ~ "Medium",
+    EXT_SOURCE_2 < 0.75 ~ "High",
+    EXT_SOURCE_2 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+train_clean <- train_clean |>
+  mutate(EXT_SOURCE_3 = case_when(
+    is.na(EXT_SOURCE_3) ~ "Missing",
+    EXT_SOURCE_3 < 0.25 ~ "Low",
+    EXT_SOURCE_3 < 0.50 ~ "Medium",
+    EXT_SOURCE_3 < 0.75 ~ "High",
+    EXT_SOURCE_3 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+
+# Now we are going to replace NAs in the rest of the numeric variables with the medians
+train_clean <- train_clean %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+```
+
+## Test Data
+We have to repeat all the cleaning we did for the train dataset now with the test data. 
+```{r clean test, , echo=TRUE, results='hide'}
+test_clean <- test |>
+  mutate(across(c(DAYS_BIRTH, DAYS_EMPLOYED, DAYS_REGISTRATION, DAYS_ID_PUBLISH, DAYS_LAST_PHONE_CHANGE), abs))
+
+# The next thing to do is to remove all columns where there are 200,000 or more NA's. 65% NAs in the column is not worth the trouble of cleaning
+
+test_clean <- test_clean %>% 
+  select(-YEARS_BUILD_AVG, -OWN_CAR_AGE, -COMMONAREA_AVG, -FLOORSMIN_AVG, -LIVINGAPARTMENTS_AVG, 
+         -NONLIVINGAPARTMENTS_AVG, -YEARS_BUILD_MODE, -COMMONAREA_MODE, -FLOORSMIN_MODE, -LIVINGAPARTMENTS_MODE, -NONLIVINGAPARTMENTS_MODE, -YEARS_BUILD_MEDI, -COMMONAREA_MEDI, -FLOORSMIN_MEDI, -NONLIVINGAPARTMENTS_MEDI, -LIVINGAPARTMENTS_MEDI)
+
+test_clean <- test_clean |>
+  select(-FLAG_MOBIL, -FLAG_DOCUMENT_2, -FLAG_DOCUMENT_4, -FLAG_DOCUMENT_7, -FLAG_DOCUMENT_10, -FLAG_DOCUMENT_12, -FLAG_DOCUMENT_17, -FLAG_DOCUMENT_21)
+
+# making factors
+test_clean <- test_clean |> 
+  mutate(across(where(is.character), as.factor))
+
+# Now we are going to bin the three credit score variables due to the NA count
+summary(test_clean$EXT_SOURCE_1)
+test_clean <- test_clean |>
+  mutate(EXT_SOURCE_1 = case_when(
+    is.na(EXT_SOURCE_1) ~ "Missing",
+    EXT_SOURCE_1 < 0.25 ~ "Low",
+    EXT_SOURCE_1 < 0.50 ~ "Medium",
+    EXT_SOURCE_1 < 0.75 ~ "High",
+    EXT_SOURCE_1 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+summary(test_clean$EXT_SOURCE_3)
+
+# We are going to do this for the other two credit score variables as well
+test_clean <- test_clean |>
+  mutate(EXT_SOURCE_2 = case_when(
+    is.na(EXT_SOURCE_2) ~ "Missing",
+    EXT_SOURCE_2 < 0.25 ~ "Low",
+    EXT_SOURCE_2 < 0.50 ~ "Medium",
+    EXT_SOURCE_2 < 0.75 ~ "High",
+    EXT_SOURCE_2 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+test_clean <- test_clean |>
+  mutate(EXT_SOURCE_3 = case_when(
+    is.na(EXT_SOURCE_3) ~ "Missing",
+    EXT_SOURCE_3 < 0.25 ~ "Low",
+    EXT_SOURCE_3 < 0.50 ~ "Medium",
+    EXT_SOURCE_3 < 0.75 ~ "High",
+    EXT_SOURCE_3 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+
+# Now we are going to replace NAs in the rest of the numeric variables with the medians
+test_clean <- test_clean %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+```
+
+# Additional Dataset Preperation
+## Bureau
+```{r clean buraeu, , echo=TRUE, results='hide'}
+summary(bureau)
+
+# We need to aggregate the data so we can do a 1 to 1 join with the cleaned train data. However, we want to clean the bureau data first
+
+# First lets remove the variables with majority NAs
+bureau_clean <- bureau |> 
+  select(-AMT_ANNUITY, -AMT_CREDIT_MAX_OVERDUE, -DAYS_CREDIT_ENDDATE)
+
+# Finally lets make the character variables factors
+bureau_clean <- bureau_clean |> 
+  mutate(across(where(is.character), as.factor))
+
+# Now lets make the date variables positive
+bureau_clean <- bureau_clean |>
+  mutate(across(c(DAYS_CREDIT, DAYS_ENDDATE_FACT, DAYS_CREDIT_UPDATE), abs))
+
+# Now lets impute the missing data in the numerical variables with the median
+bureau_clean <- bureau_clean %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+# Check if there are still NAs
+sum(is.na(bureau_clean))
+
+
+# For numeric we will take the average of numeric variables and add a n() variable. For categorical we will take the mode
+# Here is a mode function
+mode <- function(x) {
+  ux <- unique(na.omit(x))  # Remove NA values
+  ux[which.max(tabulate(match(x, ux)))]  # Find most frequent value
+}
+
+bureau_agg <- bureau_clean |>
+  group_by(SK_ID_CURR) |>
+  summarise(
+    num_credits = n(),
+    credit_active = mode(CREDIT_ACTIVE),
+    credit_currency = mode(CREDIT_CURRENCY),
+    avg_days_credit = mean(DAYS_CREDIT),
+    avg_credit_day_overdue = mean(CREDIT_DAY_OVERDUE),
+    avg_days_enddate_fact = mean(DAYS_ENDDATE_FACT),
+    avg_cnt_credit_prolong = mean(CNT_CREDIT_PROLONG),
+    avg_amt_credit_sum = mean(AMT_CREDIT_SUM),
+    avg_credit_sum_debt = mean(AMT_CREDIT_SUM_DEBT),
+    avg_credit_sum_limit = mean(AMT_CREDIT_SUM_LIMIT),
+    avg_credit_sum_overdue = mean(AMT_CREDIT_SUM_OVERDUE),
+    credit_type = mode(CREDIT_TYPE),
+    avg_days_credit_update = mean(DAYS_CREDIT_UPDATE),
+    SK_ID_BUREAU = mode(SK_ID_BUREAU)
+  )
+```
+
+## Bureau Balance
+```{r clean bureau balance, , echo=TRUE, results='hide'}
+summary(bureau_balance)
+
+bureau_balance %>%
+  count(SK_ID_BUREAU, name = "row_count") %>%
+  filter(row_count > 1)
+
+
+# No NAs. Agg by id_bureau Just join to bureau data 
+sum(is.na(bureau_balance))
+
+# For numeric we will take the average of numeric variables and add a n() variable. For categorical we will take the mode
+bureau_balance_agg <- bureau_balance |> 
+  mutate(STATUS = factor(STATUS)) |>
+  group_by(SK_ID_BUREAU) |>
+  summarise(
+    bureau_balance_count = n(),
+  avg_months_balance = mean(MONTHS_BALANCE),
+  status = mode(STATUS)
+  )
+
+str(bureau_balance_agg)
+```
+
+## POS_CASH_balance
+```{r clean pos cash, , echo=TRUE, results='hide'}
+# Lets convert the character var to a factor and impute with the median
+pos_cash_balance_clean <- pos_cash_balance |> 
+  mutate(across(where(is.character), as.factor))
+
+str(pos_cash_balance_clean)
+
+# Now lets impute the missing data in the numerical variables with the median
+pos_cash_balance_clean <- pos_cash_balance_clean %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+sum(is.na(pos_cash_balance_clean))
+
+
+# checking to see row counts
+pos_cash_balance_clean %>%
+  count(SK_ID_CURR, name = "row_count") %>%
+  filter(row_count > 1)
+# have to aggregate 
+pos_cash_balance_agg <- pos_cash_balance_clean |>
+  group_by(SK_ID_CURR) |>
+  summarise(
+    pos_cash_balance_count = n(),
+    avg_months_balance = mean(MONTHS_BALANCE),
+    avg_cnt_instalment = mean(CNT_INSTALMENT),
+    avg_cnt_instalment_future = mean(CNT_INSTALMENT_FUTURE),
+    NAME_CONTRACT_STATUS = mode(NAME_CONTRACT_STATUS),
+    avg_dpd = mean(SK_DPD),
+    avg_dpd_def = mean(SK_DPD_DEF),
+    SK_ID_PREV = mode(SK_ID_PREV)
+  )
+```
+
+## Credit Card 
+```{r clean credit card, , echo=TRUE, results='hide'}
+## Now for Credit Card Balance file
+summary(creditcard_balance)
+
+# No crazy NA percentages so we will keep all variables
+
+# Lets convert the character var to a factor and impute with the median
+creditcard_balance_clean <- creditcard_balance |> 
+  mutate(across(where(is.character), as.factor))
+
+str(creditcard_balance_clean)
+
+# Now lets impute the missing data in the numerical variables with the median
+creditcard_balance_clean <- creditcard_balance_clean %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+sum(is.na(creditcard_balance_clean))
+
+# Now lets aggregate
+creditcard_balance_agg <- creditcard_balance_clean |>
+  group_by(SK_ID_CURR) |>
+  summarise(
+    creditcard_balance_count = n(),
+    NAME_CONTRACT_STATUS = mode(NAME_CONTRACT_STATUS),
+    avg_dpd = mean(SK_DPD),
+    avg_dpd_def = mean(SK_DPD_DEF),
+    avg_amt_balance = mean(AMT_BALANCE),
+    avg_amt_credit_limit_actual = mean(AMT_CREDIT_LIMIT_ACTUAL),
+    avg_amt_drawings_atm_current = mean(AMT_DRAWINGS_ATM_CURRENT),
+    avg_amt_drawings_current = mean(AMT_DRAWINGS_CURRENT),
+    avg_amt_drawings_other_current = mean(AMT_DRAWINGS_OTHER_CURRENT),
+    avg_amt_drawings_pos_current = mean(AMT_DRAWINGS_POS_CURRENT),
+    avg_amt_inst_min_regularity = mean(AMT_INST_MIN_REGULARITY),
+    avg_amt_payment_current = mean(AMT_PAYMENT_CURRENT),
+    avg_amt_payment_total_current = mean(AMT_PAYMENT_TOTAL_CURRENT),
+    avg_amt_receivable_principal = mean(AMT_RECEIVABLE_PRINCIPAL),
+    avg_amt_total_receivable = mean(AMT_RECIVABLE),
+    avg_cnt_drawings_atm_current = mean(CNT_DRAWINGS_ATM_CURRENT),
+    avg_cnt_drawings_current = mean(CNT_DRAWINGS_CURRENT),
+    avg_cnt_drawings_other_current = mean(CNT_DRAWINGS_OTHER_CURRENT),
+    avg_cnt_drawings_pos_current = mean(CNT_DRAWINGS_POS_CURRENT),
+    avg_cnt_instalment_mature_cum = mean(CNT_INSTALMENT_MATURE_CUM),
+    SK_ID_PREV = mode(SK_ID_PREV),
+  )
+
+```
+
+## Previous Application data
+```{r clean previous app, , echo=TRUE, results='hide'}
+# First for previous application file
+summary(previous_application)
+
+# Dropping some vars
+previous_application_clean <- previous_application |>
+  select(-AMT_DOWN_PAYMENT, -RATE_INTEREST_PRIMARY, -RATE_INTEREST_PRIVILEGED )
+
+# Making days variables positive
+previous_application_clean <- previous_application_clean |>
+  mutate(across(c(DAYS_TERMINATION, DAYS_LAST_DUE, DAYS_FIRST_DRAWING, DAYS_FIRST_DUE, DAYS_LAST_DUE_1ST_VERSION), abs))
+
+# Lets convert the character var to a factor and impute with the median
+previous_application_clean <- previous_application_clean |> 
+  mutate(across(where(is.character), as.factor))
+
+previous_application_clean <- previous_application_clean |>
+  mutate(NFLAG_LAST_APPL_IN_DAY = factor(NFLAG_LAST_APPL_IN_DAY),
+         NFLAG_INSURED_ON_APPROVAL = factor(NFLAG_INSURED_ON_APPROVAL))
+
+str(previous_application_clean)
+
+# Now lets impute the missing data in the numerical variables with the median
+previous_application_clean <- previous_application_clean %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+sum(is.na(previous_application_clean))
+
+str(previous_application_clean)
+
+library(data.table)
+
+# Convert to data.table for speed. This dataset is too large to do dplyr way
+previous_application_clean <- as.data.table(previous_application_clean)
+
+# Aggregate using data.table
+previous_application_agg <- previous_application_clean[, .(
+  previous_apps = .N,
+  NAME_CONTRACT_STATUS = mode(NAME_CONTRACT_STATUS),
+  NAME_CONTRACT_TYPE = mode(NAME_CONTRACT_TYPE),
+  WEEKDAY_APPR_PROCESS_START = mode(WEEKDAY_APPR_PROCESS_START),
+  FLAG_LAST_APPL_PER_CONTRACT = mode(FLAG_LAST_APPL_PER_CONTRACT),
+  NAME_CASH_LOAN_PURPOSE = mode(NAME_CASH_LOAN_PURPOSE),
+  NAME_PAYMENT_TYPE = mode(NAME_PAYMENT_TYPE),
+  CODE_REJECT_REASON = mode(CODE_REJECT_REASON),
+  NAME_TYPE_SUITE = mode(NAME_TYPE_SUITE),
+  NAME_CLIENT_TYPE = mode(NAME_CLIENT_TYPE),
+  NAME_GOODS_CATEGORY = mode(NAME_GOODS_CATEGORY),
+  NAME_PORTFOLIO = mode(NAME_PORTFOLIO),
+  NAME_PRODUCT_TYPE = mode(NAME_PRODUCT_TYPE),
+  CHANNEL_TYPE = mode(CHANNEL_TYPE),
+  NAME_SELLER_INDUSTRY = mode(NAME_SELLER_INDUSTRY),
+  NAME_YIELD_GROUP = mode(NAME_YIELD_GROUP),
+  PRODUCT_COMBINATION = mode(PRODUCT_COMBINATION),
+  avg_amt_annuit = mean(AMT_ANNUITY),
+  avg_amt_application = mean(AMT_APPLICATION),
+  avg_amt_credit = mean(AMT_CREDIT),
+  avg_amt_goodsprice = mean(AMT_GOODS_PRICE),
+  avg_hour_appr_process_start = mean(HOUR_APPR_PROCESS_START),
+  NFLAG_LAST_APPL_IN_DAY = mode(NFLAG_LAST_APPL_IN_DAY),
+  avg_rate_down_payment = mean(RATE_DOWN_PAYMENT),
+  avg_days_decision = mean(DAYS_DECISION),
+  avg_sellerplace_area = mean(SELLERPLACE_AREA),
+  avg_cnt_payment = mean(CNT_PAYMENT),
+  avg_days_first_drawing = mean(DAYS_FIRST_DRAWING),
+  avg_days_first_due = mean(DAYS_FIRST_DUE),
+  avg_days_last_due_1st = mean(DAYS_LAST_DUE_1ST_VERSION),
+  avg_days_last_due = mean(DAYS_LAST_DUE),
+  avg_days_termination = mean(DAYS_TERMINATION),
+  NFLAG_INSURED_ON_APPROVAL = mode(NFLAG_INSURED_ON_APPROVAL),
+  SK_ID_PREV = first(SK_ID_PREV)  # Keep the first ID
+), by = SK_ID_CURR]  # Group by SK_ID_CURR
+
+```
+
+## Installments Payments
+```{r clean installments, , echo=TRUE, results='hide'}
+## Other dataset
+summary(installments_payments)
+
+# barely any NAs. Need to make the Days variable positive
+installments_clean <- installments_payments |>
+  mutate(across(c(DAYS_INSTALMENT, DAYS_ENTRY_PAYMENT), abs))
+
+# No categorical vars. Lets impute the numerical ones with the median
+installments_clean <- installments_clean %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+# Now lets aggregate
+installments_agg <- installments_clean |>
+  group_by(SK_ID_CURR) |>
+  summarise(
+    n = n(),
+    avg_num_instalment_version = mean(NUM_INSTALMENT_VERSION),
+    avg_num_instalment_number = mean(NUM_INSTALMENT_NUMBER),
+    avg_days_instalment = mean(DAYS_INSTALMENT),
+    avg_days_entry_payment = mean(DAYS_ENTRY_PAYMENT),
+    avg_days_instalment = mean(AMT_INSTALMENT),
+    avg_amt_payment = mean(AMT_PAYMENT),
+    SK_ID_PREV = mode(SK_ID_PREV)
+  )
+
+```
+
+### Summary of Data Cleaning and Modeling Process
+It is no secret that this data requires a lot of cleaning prior to modeling. The first set of cleaning to do is with the train data itself. There are a ton of NAs to handle. We chose to remove columns with majority NAs as well as some columns where there was litle to no variation. We also converted all character variables to factors. With the remaining numeric variables, we imputed the missing values with the median. We imputed missing values in factor variables with the mode. We also binned the external source credit score variables to handle those NAs. After that cleaning is done, we have to clean the other datasets so that they can be joined to the train data. However, we also needed to aggregate the other datasets so that there was only one row per SK_ID_CURR. For each of the other six datasets, the process was fairly similar. We removed the variables with majority NAs first. Then, we would make the character variables factors and make the date variables positive. Next we would impute the missing values with the median. Finally, we would perform an aggregation where we would take the mean of numeric columns and mode of the factor columns for each SK_ID_CURR. After that was all done, we were able to join all the tables together. Unfortunately, there was also cleaning to be done with the joined data. We had to impute with the median and mode once again. In addition, there were duplicate columns that had to be deleted. Once this was all done, it all had to be replicated exactly the same way for the test dataset. In terms of the modeling process, we made a ton of models and identified variables that seemed to be making the model stronger. We also used our knowledge of the material to make assumptions on which variables would increase our Kaggle score. 
+
+# Data Aggregation
+
+## Joining Train Data 
+In this code chunk we first join the cleaned train dataset to the bureau dataset. The only dataset without the SK_ID_CURR variable is the bureau_balance dataset, so that join is slightly different and had to be joined to a dataset that had the bureau data already.  
+```{r join train,}
+
+# Now lets join the datasets
+train_clean_bureau <- train_clean |>
+  left_join(bureau_agg, by = "SK_ID_CURR")
+
+train_clean_bureau2 <- train_clean_bureau |>
+  left_join(bureau_balance_agg, by = "SK_ID_BUREAU")
+
+# Now we can do the rest in one join
+final_join <- train_clean_bureau2 |>
+  left_join(pos_cash_balance_agg, by = "SK_ID_CURR") |>
+  left_join(creditcard_balance_agg, by = "SK_ID_CURR") |>
+  left_join(previous_application_agg, by = "SK_ID_CURR") |>
+  left_join(installments_agg, by = "SK_ID_CURR")
+
+# There are 307511 rows in the final joined data which is perfect because that is the same amount as the train_clean data. 
+```
+
+## Cleaning of Final Join
+```{r final clean join train, , echo=TRUE, results='hide'}
+final_join |> 
+  summarize_all(count_missings)
+# We unfortunately get a lot of nulls after the final join. This means we need to do some cleaning. 
+summary(final_join)
+
+final_join_clean <- final_join %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+categorical_cols <- names(final_join_clean)[sapply(final_join_clean, is.factor) | sapply(final_join_clean, is.character)]
+
+# Fill missing values in categorical columns with the most frequent value (mode)
+for (col in categorical_cols) {
+  most_frequent <- names(sort(table(final_join_clean[[col]]), decreasing = TRUE))[1]  # Get most common category
+  final_join_clean[[col]][is.na(final_join_clean[[col]])] <- most_frequent
+}
+
+sum(is.na(final_join_clean))
+
+# We also have a bunch of duplicated columns
+final_join_clean <- final_join_clean %>%
+  rename(NAME_CONTRACT_TYPE = NAME_CONTRACT_TYPE.x) %>% 
+  rename(SK_ID_PREV = SK_ID_PREV.x) %>% 
+  rename(NAME_TYPE_SUITE = NAME_TYPE_SUITE.x) %>% 
+  rename(WEEKDAY_APPR_PROCESS_START = WEEKDAY_APPR_PROCESS_START.x) %>% 
+  rename(avg_months_balance = avg_months_balance.x) %>% 
+  rename(avg_dpd = avg_dpd.x) %>% 
+  rename(avg_dpd_def = avg_dpd_def.x) %>%
+  select(-NAME_CONTRACT_TYPE.y, -SK_ID_PREV.y, -SK_ID_PREV.x.x, -SK_ID_PREV.x.x, -SK_ID_PREV.y.y, -NAME_TYPE_SUITE.y, -WEEKDAY_APPR_PROCESS_START.y, -avg_months_balance.y, -avg_dpd.y, -avg_dpd_def.y)
+
+```
+
+## Joining Data Test
+Again we have to do the same as we did for the train data to the test.
+```{r join test, }
+# Now lets join the datasets
+test_clean_bureau <- test_clean |>
+  left_join(bureau_agg, by = "SK_ID_CURR")
+
+test_clean_bureau2 <- test_clean_bureau |>
+  left_join(bureau_balance_agg, by = "SK_ID_BUREAU")
+
+# Now we can do the rest in one join
+final_test_join <- test_clean_bureau2 |>
+  left_join(pos_cash_balance_agg, by = "SK_ID_CURR") |>
+  left_join(creditcard_balance_agg, by = "SK_ID_CURR") |>
+  left_join(previous_application_agg, by = "SK_ID_CURR") |>
+  left_join(installments_agg, by = "SK_ID_CURR")
+```
+
+
+## Cleaning the Joined Test Data
+```{r final clean test,}
+final_test_join_clean <- final_test_join %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+categorical_cols <- names(final_test_join_clean)[sapply(final_test_join_clean, is.factor) | sapply(final_test_join_clean, is.character)]
+
+# Fill missing values in categorical columns with the most frequent value (mode)
+for (col in categorical_cols) {
+  most_frequent <- names(sort(table(final_test_join_clean[[col]]), decreasing = TRUE))[1]  # Get most common category
+  final_test_join_clean[[col]][is.na(final_test_join_clean[[col]])] <- most_frequent
+}
+
+sum(is.na(final_test_join_clean))
+
+# We also have a bunch of duplicated columns
+final_test_join_clean <- final_test_join_clean %>%
+  rename(NAME_CONTRACT_TYPE = NAME_CONTRACT_TYPE.x) %>% 
+  rename(SK_ID_PREV = SK_ID_PREV.x) %>% 
+  rename(NAME_TYPE_SUITE = NAME_TYPE_SUITE.x) %>% 
+  rename(WEEKDAY_APPR_PROCESS_START = WEEKDAY_APPR_PROCESS_START.x) %>% 
+  rename(avg_months_balance = avg_months_balance.x) %>% 
+  rename(avg_dpd = avg_dpd.x) %>% 
+  rename(avg_dpd_def = avg_dpd_def.x) %>%
+  select(-NAME_CONTRACT_TYPE.y, -SK_ID_PREV.y, -SK_ID_PREV.x.x, -SK_ID_PREV.x.x, -SK_ID_PREV.y.y, -NAME_TYPE_SUITE.y, -WEEKDAY_APPR_PROCESS_START.y, -avg_months_balance.y, -avg_dpd.y, -avg_dpd_def.y)
+
+sum(is.na(final_test_join_clean))
+
+```
+
+### Ouliers
+```{r}
+# Lets handle outliers
+# Get numeric columns only
+numeric_cols <- sapply(final_join_clean, is.numeric)
+numeric_col_names <- names(final_join_clean)[numeric_cols]
+numeric_col_names <- setdiff(numeric_col_names, "TARGET")
+
+# Compute IQR-based bounds for each numeric column
+outlier_bounds <- lapply(final_join_clean[, numeric_col_names], function(col) {
+  Q1 <- quantile(col, 0.25, na.rm = TRUE)
+  Q3 <- quantile(col, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  return(c(lower_bound, upper_bound))
+})
+
+# Convert to a data frame for easy access
+outlier_bounds <- as.data.frame(do.call(rbind, outlier_bounds))
+colnames(outlier_bounds) <- c("lower", "upper")
+
+# Function to cap outliers based on predefined bounds
+cap_outliers <- function(df, bounds) {
+  for (col in rownames(bounds)) {
+    df[[col]] <- pmin(pmax(df[[col]], bounds[col, "lower"]), bounds[col, "upper"])
+  }
+  return(df)
+}
+
+# Apply capping to both train and test
+final_join_clean[, numeric_col_names] <- cap_outliers(final_join_clean[, numeric_col_names], outlier_bounds)
+final_test_join_clean[, numeric_col_names] <- cap_outliers(final_test_join_clean[, numeric_col_names], outlier_bounds)
+```
+
+
+# Modeling
+
+## Majority Class Classifier
+```{r majority class classifier}
+# finding accuracy for a simple majority class classifier
+
+mean(final_join_clean$TARGET)
+# The mean is 0.08073 so the majority class predictor would just predict 0 every time resulting in an accuracy of 1-0.08073= 0.919. or 91.93%. Fairly low mean and fairly high accuracy for such a simple model. 
+
+```
+
+## Model Split 
+This is for cross-validation. We are doing a 70/30 split which means we keep 70% of the data for the train fold and 30% for the validation fold. 
+```{r model split}
+# we need to split the train data so we have a validation set for cross-validation. We will split 70/30
+set.seed(123)
+index <- sample(x = 1:nrow(final_join_clean), size = floor(nrow(final_join_clean) * 0.7), replace = FALSE)
+
+# Subset train using index to create a 70% train_fold
+train_fold <- final_join_clean[index, ]
+
+# Subset the remaining rows not included in index to create a 30% validation fold
+validation_fold <- final_join_clean[-index, ]
+```
+
+
+## Base Model
+First lets start with a basic model to get a starting point. 
+```{r base model,}
+base.model <- glm(TARGET ~ EXT_SOURCE_1 * EXT_SOURCE_2 + EXT_SOURCE_3 + DAYS_BIRTH + DAYS_EMPLOYED + AMT_CREDIT + 
+                     AMT_INCOME_TOTAL + REGION_RATING_CLIENT + CNT_CHILDREN + FLAG_OWN_REALTY, 
+                     data = train_fold, family = "binomial")
+
+top_predictorsb <- tidy(base.model) %>%
+  arrange(p.value) %>%  # Sort by p-value (smallest first)
+  head(10)  %>% # Select top 10 most significant predictors
+  mutate(p.value = scientific(p.value, digits = 2))
+
+print(top_predictorsb)
+# The top predictors are the external credit score predictors for low and high followed by the days employed variable. 
+```
+
+
+## AUC Base Model
+
+```{r base auc}
+# Get probabilities for the validation fold
+predictions_0 <- predict(base.model, newdata = validation_fold, type = "response")
+
+# Convert probabilities to binary class labels (threshold = 0.5)
+predicted_class_0 <- ifelse(predictions_0 > 0.5, 1, 0)
+
+log_loss <- function(actual, predicted) {
+  -mean(actual * log(predicted) + (1 - actual) * log(1 - predicted))
+}
+
+# Compute log loss
+log_loss(validation_fold$TARGET, predictions_0)
+
+
+roc_curve_0 <- roc(validation_fold$TARGET, predictions_0)
+auc(roc_curve_0)
+```
+Our AUC for our base model is 0.7207. 
+
+## Test Base Model
+
+```{r base submission}
+# Get probabilities for the validation fold
+test_predictions <- predict(base.model, newdata = final_test_join_clean, type = "response")
+
+head(test_predictions)
+
+#Create submission
+modeling_sub <- data.frame(
+    SK_ID_CURR = final_test_join_clean$SK_ID_CURR,
+    TARGET = test_predictions
+)
+
+#Save submission file
+write.csv(modeling_sub, "basemodel_group_home_credit_submission.csv", row.names=FALSE)
+```
+We decided to put this into Kaggle so that we also have something to compare to our future models.
+
+Kaggle Scores: 
+Public Score: 0.70933
+Private score: 0.70202
+
+## Model 1
+
+```{r model 1,}
+# model using predictors that have a high significance
+model1 <- glm(TARGET ~ avg_days_enddate_fact + avg_amt_credit_sum + avg_credit_sum_debt + avg_credit_sum_limit + AMT_REQ_CREDIT_BUREAU_MON + AMT_REQ_CREDIT_BUREAU_QRT + AMT_REQ_CREDIT_BUREAU_YEAR + num_credits + DAYS_LAST_PHONE_CHANGE + FLAG_DOCUMENT_3 + FLAG_DOCUMENT_5 + FLAG_DOCUMENT_6 + FLAG_DOCUMENT_8 + DEF_30_CNT_SOCIAL_CIRCLE + EMERGENCYSTATE_MODE + FONDKAPREMONT_MODE + EXT_SOURCE_3 + EXT_SOURCE_2 + EXT_SOURCE_1 + ORGANIZATION_TYPE + REG_CITY_NOT_LIVE_CITY + OCCUPATION_TYPE + FLAG_WORK_PHONE + FLAG_PHONE + DAYS_BIRTH + DAYS_EMPLOYED + DAYS_REGISTRATION + DAYS_ID_PUBLISH + NAME_FAMILY_STATUS + NAME_TYPE_SUITE + AMT_CREDIT + AMT_ANNUITY + AMT_GOODS_PRICE + CNT_CHILDREN + NAME_CONTRACT_TYPE + CODE_GENDER + FLAG_OWN_CAR, data = final_join_clean, family = binomial)
+
+top_predictors1 <- tidy(model1) %>%
+  arrange(p.value) %>%  # Sort by p-value (smallest first)
+  head(10)  %>% # Select top 10 most significant predictors
+  mutate(p.value = scientific(p.value, digits = 2))
+
+print(top_predictors1)
+
+# The top predictors in terms of lowest p-value are the external credit score predictors of low and high with credit amount coming in not long after. 
+
+```
+
+
+### AUC Model 1
+
+```{r auc 1}
+# Get probabilities for the validation fold
+predictions_1 <- predict(model1, newdata = validation_fold, type = "response")
+
+# Convert probabilities to binary class labels (threshold = 0.5)
+predicted_class_1 <- ifelse(predictions_1 > 0.5, 1, 0)
+
+log_loss <- function(actual, predicted) {
+  -mean(actual * log(predicted) + (1 - actual) * log(1 - predicted))
+}
+
+# Compute log loss
+log_loss(validation_fold$TARGET, predictions_1)
+
+
+roc_curve_1 <- roc(validation_fold$TARGET, predictions_1)
+auc(roc_curve_1)
+```
+Our AUC for our model that has significant predictors is 0.7427. 
+
+### Test Model 1 submission
+
+```{r 1 submission}
+# Get probabilities for the validation fold
+test_predictions <- predict(model1, newdata = final_test_join_clean, type = "response")
+
+head(test_predictions)
+
+#Create submission
+modeling_sub <- data.frame(
+    SK_ID_CURR = final_test_join_clean$SK_ID_CURR,
+    TARGET = test_predictions
+)
+
+#Save submission file
+write.csv(modeling_sub, "model1_group_home_credit_submission.csv", row.names=FALSE)
+```
+Kaggle Scores: 
+Public Score: 0.73214
+Private score: 0.72993
+
+## Model 2 
+Our second model is what we would assume would have high significance. 
+```{r model 2,}
+# model using predictors that I believe would have a large impact
+model2 <- glm(TARGET ~ CODE_GENDER + FLAG_OWN_CAR + FLAG_OWN_REALTY + CNT_CHILDREN + AMT_INCOME_TOTAL + AMT_CREDIT + AMT_ANNUITY + AMT_GOODS_PRICE + NAME_TYPE_SUITE + NAME_EDUCATION_TYPE + NAME_FAMILY_STATUS + NAME_HOUSING_TYPE + DAYS_BIRTH + DAYS_EMPLOYED + DAYS_REGISTRATION + DAYS_ID_PUBLISH + FLAG_WORK_PHONE + OCCUPATION_TYPE + CNT_FAM_MEMBERS + EXT_SOURCE_1 + EXT_SOURCE_2 + EXT_SOURCE_3 + HOUSETYPE_MODE + num_credits + credit_currency + avg_amt_credit_sum + avg_credit_sum_debt + avg_credit_sum_limit + avg_credit_sum_overdue + avg_months_balance + NAME_CONTRACT_STATUS + avg_dpd + FLAG_LAST_APPL_PER_CONTRACT + NAME_PAYMENT_TYPE + CODE_REJECT_REASON, data = final_join_clean, family = binomial)
+
+top_predictors2 <- tidy(model2) %>%
+  arrange(p.value) %>%  # Sort by p-value (smallest first)
+  head(10)  %>% # Select top 10 most significant predictors
+  mutate(p.value = scientific(p.value, digits = 2))
+
+print(top_predictors2)
+# Once again the top predictors are the two external credit score predictors with goods price amount and credit amount as the next two highest. 
+```
+
+
+### AUC Model 2
+
+```{r auc 2}
+# Get probabilities for the validation fold
+predictions_2 <- predict(model2, newdata = validation_fold, type = "response")
+
+# Convert probabilities to binary class labels (threshold = 0.5)
+predicted_class_2 <- ifelse(predictions_2 > 0.5, 1, 0)
+
+log_loss <- function(actual, predicted) {
+  -mean(actual * log(predicted) + (1 - actual) * log(1 - predicted))
+}
+
+# Compute log loss
+log_loss(validation_fold$TARGET, predictions_2)
+
+
+roc_curve_2 <- roc(validation_fold$TARGET, predictions_2)
+auc(roc_curve_2)
+```
+Our AUC score is 0.7432. This is slightly higher than our previous model with significant predictors. From these findings, we should focus more on highly significant predictors. We can possibly include some predictors that we assumed to see how our model will change.
+
+
+### Test Model 2 submission
+
+```{r 2 submission}
+# Get probabilities for the validation fold
+test_predictions_2 <- predict(model2, newdata = final_test_join_clean, type = "response")
+
+head(test_predictions_2)
+
+#Create submission
+modeling_sub_2 <- data.frame(
+    SK_ID_CURR = final_test_join_clean$SK_ID_CURR,
+    TARGET = test_predictions_2
+)
+
+#Save submission file
+write.csv(modeling_sub_2, "model2_group_home_credit_submission.csv", row.names=FALSE)
+```
+Kaggle Scores:
+Public Score: 0.73524
+Private score: 0.72926
+
+Our Kaggle score is also slightly higher than our previous model.
+
+## Model 3
+Lets do one last model combining significant predictors and ones we thought would succeed.
+
+```{r model 3,}
+# model using predictors that we believe would have a large impact
+model3<- glm(TARGET ~ CODE_GENDER + FLAG_OWN_CAR + FLAG_OWN_REALTY + CNT_CHILDREN + AMT_INCOME_TOTAL + AMT_CREDIT + AMT_ANNUITY + AMT_GOODS_PRICE + NAME_TYPE_SUITE + NAME_EDUCATION_TYPE + NAME_FAMILY_STATUS + NAME_HOUSING_TYPE + DAYS_BIRTH + DAYS_EMPLOYED + DAYS_REGISTRATION + DAYS_ID_PUBLISH + FLAG_WORK_PHONE + OCCUPATION_TYPE + CNT_FAM_MEMBERS + EXT_SOURCE_1 + EXT_SOURCE_2 + EXT_SOURCE_3 + HOUSETYPE_MODE + num_credits + credit_currency + avg_amt_credit_sum + avg_credit_sum_debt + avg_credit_sum_limit + avg_credit_sum_overdue + avg_months_balance + NAME_CONTRACT_STATUS + avg_dpd + FLAG_LAST_APPL_PER_CONTRACT + NAME_PAYMENT_TYPE + CODE_REJECT_REASON + avg_days_enddate_fact + AMT_REQ_CREDIT_BUREAU_MON + AMT_REQ_CREDIT_BUREAU_QRT + AMT_REQ_CREDIT_BUREAU_YEAR + DAYS_LAST_PHONE_CHANGE + FLAG_DOCUMENT_3 + FLAG_DOCUMENT_5 + FLAG_DOCUMENT_6 + FLAG_DOCUMENT_8 + DEF_30_CNT_SOCIAL_CIRCLE + EMERGENCYSTATE_MODE + FONDKAPREMONT_MODE + ORGANIZATION_TYPE + REG_CITY_NOT_LIVE_CITY + FLAG_PHONE + NAME_CONTRACT_TYPE
+, data = final_join_clean, family = binomial)
+
+top_predictors3 <- tidy(model3) %>%
+  arrange(p.value) %>%  # Sort by p-value (smallest first)
+  head(10)  %>% # Select top 10 most significant predictors
+  mutate(p.value = scientific(p.value, digits = 2))
+
+print(top_predictors3)
+
+# The top predictors continue to be the external credit score predictors with the very high credit score level moving up in significance for this model. Gender was also one of the most significant variables in this final model. 
+```
+
+
+### AUC Model 3
+
+```{r auc 3}
+# Get probabilities for the validation fold
+predictions_3 <- predict(model3, newdata = validation_fold, type = "response")
+
+# Convert probabilities to binary class labels (threshold = 0.5)
+predicted_class_3 <- ifelse(predictions_3 > 0.5, 1, 0)
+
+log_loss <- function(actual, predicted) {
+  -mean(actual * log(predicted) + (1 - actual) * log(1 - predicted))
+}
+
+# Compute log loss
+log_loss(validation_fold$TARGET, predictions_3)
+
+
+roc_curve_3 <- roc(validation_fold$TARGET, predictions_3)
+auc(roc_curve_3)
+```
+Our AUC for this model is 0.7473. This is our highest AUC of the three models we have made. 
+
+### Test Model 3 submission
+
+```{r 3 sub mission}
+# Get probabilities for the validation fold
+test_predictions_3 <- predict(model3, newdata = final_test_join_clean, type = "response")
+
+head(test_predictions_3)
+
+#Create submission
+modeling_sub_3 <- data.frame(
+    SK_ID_CURR = final_test_join_clean$SK_ID_CURR,
+    TARGET = test_predictions_3
+)
+
+#Save submission file
+write.csv(modeling_sub_3, "model3_group_home_credit_submission.csv", row.names=FALSE)
+```
+Kaggle Scores:
+Public Score: 0.73880
+Private score: 0.73291
+
+### Logistic Regression Summary
+Model 1:
+AUC = 0.7427
+Kaggle Score: 
+Public Score: 0.73214
+Private Score: 0.72993
+
+Model 2:
+AUC = 0.7432
+Kaggle Score: 
+Public Score: 0.73524
+Private Score: 0.72926
+
+Model 3:
+AUC = 0.7473 
+Kaggle Score: 
+Public Score: 0.73880
+Private Score: 0.73291
+
+The logistic regression model is a popular and commonly used model that uses probability to estimate the target being either a default class or non-default class using the variables in the dataset. Given the performance of each model tested, the AUC and Kaggles scores have gradually increased. This shows the flexibility of the log models and the ability to modify and improve its performance.
+
+## Naive Bayes Model
+```{r naive bayes model}
+nb_model1 <- naiveBayes(TARGET ~ CODE_GENDER + AMT_CREDIT + AMT_ANNUITY + AMT_GOODS_PRICE + NAME_EDUCATION_TYPE + DAYS_EMPLOYED + FLAG_PHONE + EXT_SOURCE_1 + EXT_SOURCE_2 + EXT_SOURCE_3 + num_credits + credit_currency + avg_amt_credit_sum + avg_dpd + FLAG_LAST_APPL_PER_CONTRACT + NAME_PAYMENT_TYPE + CODE_REJECT_REASON,data = final_join_clean)
+```
+
+### AUC Naive Bayes
+```{r auc naive bayes}
+nb_predictions <- predict(nb_model1,validation_fold, type = "raw")[, 2]
+
+roc_curve_nb <- roc(validation_fold$TARGET, nb_predictions)
+auc(roc_curve_nb)
+```
+
+### Test Naive Bayes Submission
+```{r naive bayes submission}
+# Get probabilities for the validation fold
+test_predictions_nb <- predict(nb_model1, newdata = final_test_join_clean)
+
+head(test_predictions_nb)
+
+#Create submission
+modeling_sub_nb <- data.frame(
+    SK_ID_CURR = final_test_join_clean$SK_ID_CURR,
+    TARGET = test_predictions_nb
+)
+
+#Save submission file
+write.csv(modeling_sub_nb, "nb_model_group_home_credit_submission.csv", row.names=FALSE)
+```
+### Naive Bayes Summary
+AUC = 0.7107
+Kaggle:
+Public Score: 0.52578
+Private score: 0.52564
+
+The Naive Bayes model is a probabilistic classification model that treats features independently. Our Naive Bayes model had a decent performance when it came to the AUC score of 0.7107, but it was still informative to have. It was also much quicker to use this model compared to our logistic regression models. We were able to understand more clearly that the relationships between features were more complex than we originally thought. 
+
+
+## Random Forest Model
+```{r random forest}
+library(randomForest)
+library(pROC)
+library(ROSE)
+
+# Convert TARGET to a factor
+final_join_clean$TARGET <- as.factor(final_join_clean$TARGET)
+validation_fold$TARGET <- as.factor(validation_fold$TARGET)
+
+# Under-sample the majority class
+balanced_data <- ROSE(TARGET ~ ., data = final_join_clean, seed = 50)$data
+
+# Train Random Forest model 
+set.seed(50)
+rf_model <- randomForest(TARGET ~ CODE_GENDER + FLAG_OWN_CAR + FLAG_OWN_REALTY + CNT_CHILDREN + AMT_INCOME_TOTAL + AMT_CREDIT + AMT_ANNUITY + AMT_GOODS_PRICE + NAME_TYPE_SUITE + NAME_FAMILY_STATUS + NAME_HOUSING_TYPE + DAYS_BIRTH + DAYS_EMPLOYED + OCCUPATION_TYPE + num_credits + credit_currency + avg_amt_credit_sum + avg_credit_sum_debt + avg_credit_sum_limit + avg_credit_sum_overdue + avg_months_balance + NAME_CONTRACT_STATUS + avg_dpd,
+data = balanced_data, ntree = 75, mtry = 4, importance = TRUE)
+
+# Get probabilities for validation
+rf_probabilities <- predict(rf_model, newdata = validation_fold, type = "prob")[, 2]
+
+# ROC and AUC for Random Forest model
+roc_curve_rf <- roc(validation_fold$TARGET, rf_probabilities)
+auc_value <- auc(roc_curve_rf)
+
+
+cat("Validation Set AUC: ", auc_value, "\n")
+
+```
+
+### Test Random Forest Submission
+```{r test random forest}
+# Confirm factor levels match for categorical variables in test
+categorical_vars <- c(
+  "CODE_GENDER", 
+  "FLAG_OWN_CAR", 
+  "FLAG_OWN_REALTY", 
+  "NAME_TYPE_SUITE", 
+  "NAME_FAMILY_STATUS", 
+  "NAME_HOUSING_TYPE", 
+  "OCCUPATION_TYPE", 
+  "credit_currency", 
+  "NAME_CONTRACT_STATUS"
+)
+for (var in categorical_vars) {
+  levels(final_test_join_clean[[var]]) <- levels(final_join_clean[[var]])
+}
+
+# Get probabilities for the test using trained rf
+test_predictions_rf <- predict(rf_model, newdata = final_test_join_clean, type = "prob")[, 2]
+
+# If TARGET is available in the test, compute AUC
+if ("TARGET" %in% colnames(final_test_join_clean)) {
+  roc_curve_rf_test <- roc(final_test_join_clean$TARGET, test_predictions_rf)
+  auc_value_test <- auc(roc_curve_rf_test)
+  cat("Test Set AUC: ", auc_value_test, "\n")
+}
+
+# Submission file
+modeling_sub_rf <- data.frame(
+    SK_ID_CURR = final_test_join_clean$SK_ID_CURR,
+    TARGET = test_predictions_rf
+)
+write.csv(modeling_sub_rf, "rf_model_group_home_credit_submission.csv", row.names = FALSE)
+
+# Save confirmation
+cat("Test set submission file saved")
+
+```
+
+### Random Forest Summary
+AUC: 0.6959366
+Kaggle:
+Public Score: 0.64202
+Private score: 0.64318
+
+Random forest models data based on multiple decision trees that are created using a random sample of the dataset. This specific model performs well for datasets that have imbalances and a large variety of relationships between variables. The AUC score was nothing impressive at ~0.70, but with more polishing the score can easily increase.
+
+# Results 
+The third(4th including base) model we created that included predictors that were significant and ones that we assumed would improve our score, gave us the highest AUC and Kaggle score. In the future, we should continue to create more models to see if we can increase the Kaggle score. We aim to create a couple additional models prior to the final presentation to see if we can improve our position on the leaderboard. One of our group members also tried to to use a random forest model, but he was unsuccessful in getting it to work. We are pretty confident in a logistic regression being the correct direction to go. Interaction terms may be an avenue that would be worth exploring, but there are so many variables that it might be difficult to know where to start. Our final model did get a Kaggle score of 0.7356 which is improvement from our earlier models, but we are not exactly sure what the benchmark is that we should be aiming to hit. We do definitely think that modeling can be used to help solve this business problem, but it is not a fool-proof solution. It will take a team that truly knows what they are doing and understands enough about the underlying data to make actionable insights. As we continue to work on this project, we will continue to make headway on what our recommendations should be. 
+
+# Group Contribution
+Finlay Dunn- Combining group members R files, Data cleaning, aggregating and joining all other datasets, writing sections, submitting models to Kaggle
+Claranne Fechter - Modelling, Outlier handling, some data cleaning, cleaned up file
+Carl Freeze - Random Forest model, table of contents nesting, explaining results for each model, logistic base model 

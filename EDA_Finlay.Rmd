@@ -1,0 +1,368 @@
+---
+title: "EDA"
+author: "Finlay Dunn"
+date: "2025-02-09"
+output: 
+  html_document: 
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Introduction 
+This file is an explanatory data analysis (EDA) for the Home Credit Default Risk Kaggle Project. This R markdown file will go through a variety of sections such as data cleaning and summary tables that will each hope to expose more trends in the underlying data.
+
+## Description of the Data
+First, regarding the train dataset, the target variable is actually called TARGET. It is equal to 1 if it is a client with payment difficulties such as late payments on a loan and equal to 0 otherwise. One variable is an ID variable, but the remaining 120 are potential explanatory variables of the TARGET. These variables illustrate a variety of different aspects of the client's life and specifics about loans. Some examples of variables are gender, income of the client, loan annuity, the education level of the client, and the family status of the client. There are many other variable including three important ones that give external credit scores for the client. There are numerous variables about the building where the client lives such as information about the apartments, floors, land area, and entrances. For each one of these building variables, the dataset includes the average, mode, and median for them as separate columns. There are also 20 flag document variables which say if the client provided a certain document or not. There are a few other datasets. We only focused on one other one which was the bureau data. The bureau dataset holds all client's previous credits from other financial institutions if they have a loan in the sample. The variables in this dataset include the status of the Credit Bureau reported credits, the number of days past due, and the current credit amount. 
+
+
+```{r, include = FALSE}
+library(dplyr)
+library(skimr)
+library(janitor)
+library(ggplot2)
+library(tidyverse)
+train <- read.csv("application_train.csv")
+bureau <- read.csv("bureau.csv")
+
+train$TARGET
+```
+
+## Looking at Missings
+```{r, echo=TRUE, results='hide'}
+# function to find missing data
+count_missings <- function(x) sum(is.na(x))
+
+# finding missing for all columns
+train |> 
+  summarize_all(count_missings) # Handy summarize_all function
+
+```
+
+## Discussion of Missing Data
+There are a ton of missing values in the train dataset and also some in the bureau csv. I thought about multiple different ways to handle the nulls. The first thing I decided to do was to remove columns with 200000 or more NAs (about 65%). The next thing I did was find variables with little to no variance and remove those. Often the variables with extremely small standard deviations also included lots of nulls. To handle nulls for categorical variables, I made them all factors and NA is one of the levels (if I did this right. Will be revisited in next step). The final strategy was binning. I binned the three external credit score variables and made missing one of the bins. I may do this with more variables in the future if I need to. In the Bureau dataset there are less NAs, and I only removed two columns due to majority Nulls. I did make all the character variables factors again. 
+
+## Majority Class Classifier
+```{r}
+# finding accuracy for a simple majority class classifier
+
+mean(train$TARGET)
+# The mean is 0.08073 so the majority class predictor would just predict 0 every time resulting in an accuracy of 1-0.08073= 0.919. or 91.93%. Fairly low mean and fairly high accuracy for such a simple model. 
+
+
+```
+
+## Data Cleaning
+Based on our summary data we just acquired there are a lot of changes that need to be made to the variables.
+```{r, echo=TRUE, results='hide'}
+# This will give us an idea of spread and outliers
+summary(train)
+l# First we will make all the days vars positive rather than negative
+train_clean <- train |>
+  mutate(across(c(DAYS_BIRTH, DAYS_EMPLOYED, DAYS_REGISTRATION, DAYS_ID_PUBLISH, DAYS_LAST_PHONE_CHANGE), abs))
+
+summary(train_clean$DAYS_BIRTH) # Now all the days variables are positive
+
+# The next thing to do is to remove all columns where there are 200,000 or more NA's. 65% NAs in the column is not worth the trouble of cleaning
+
+train_clean <- train_clean %>% 
+  select(-YEARS_BUILD_AVG, -OWN_CAR_AGE, -COMMONAREA_AVG, -FLOORSMIN_AVG, -LIVINGAPARTMENTS_AVG, 
+         -NONLIVINGAPARTMENTS_AVG, -YEARS_BUILD_MODE, -COMMONAREA_MODE, -FLOORSMIN_MODE, -LIVINGAPARTMENTS_MODE, -NONLIVINGAPARTMENTS_MODE, -YEARS_BUILD_MEDI, -COMMONAREA_MEDI, -FLOORSMIN_MEDI, -NONLIVINGAPARTMENTS_MEDI, -LIVINGAPARTMENTS_MEDI)
+
+# There are still a lot of columns with a ton of nulls. We are now going to look at standard deviations to see if any are 0 or near 0
+
+options(scipen = 999)  # Run this so we dont get scientific notation output anymore
+
+
+train_clean %>% 
+  summarise(across(everything(), ~ sd(.x, na.rm = TRUE))) |>
+  t()
+
+# with some of the low standard deviations we are going to make tables to see what the data looks like
+table(train_clean$FLAG_MOBIL) # 307510 1s and 1 0 so we will delete this variable
+table(train_clean$REGION_POPULATION_RELATIVE) # worth keeping due to variety
+table(train_clean$FLAG_DOCUMENT_2) # almost all 0s so we will delete this column
+table(train_clean$FLAG_DOCUMENT_4) # Once again almost all 0s so we will delete
+table(train_clean$FLAG_DOCUMENT_7) # Once again almost all 0s so we will delete
+table(train_clean$FLAG_DOCUMENT_10) # Only seven 1s in the whole dataset so we will delete
+table(train_clean$FLAG_DOCUMENT_12) # Two 1s in the whole dataset so we will delete
+table(train_clean$FLAG_DOCUMENT_17) # Once again almost all 0s so we will delete
+table(train_clean$FLAG_DOCUMENT_21) # Once again almost all 0s so we will delete
+
+# Now we will delete those variables
+train_clean <- train_clean |>
+  select(-FLAG_MOBIL, -FLAG_DOCUMENT_2, -FLAG_DOCUMENT_4, -FLAG_DOCUMENT_7, -FLAG_DOCUMENT_10, -FLAG_DOCUMENT_12, -FLAG_DOCUMENT_17, -FLAG_DOCUMENT_21)
+
+# Now we need to look at the character vars to see if they need to become factors
+table(train_clean$NAME_CONTRACT_TYPE) # Two levels so we will make it a factor
+table(train_clean$CODE_GENDER) # will factor
+table(train_clean$FLAG_OWN_CAR) # will factor
+table(train_clean$FLAG_OWN_REALTY) # will factor
+table(train_clean$NAME_TYPE_SUITE) # wont factor. Will probably not use
+table(train_clean$NAME_INCOME_TYPE) # probably will not. Levels do not make much sense
+table(train_clean$NAME_EDUCATION_TYPE) # will factor
+table(train_clean$NAME_FAMILY_STATUS) # will factor
+table(train_clean$NAME_HOUSING_TYPE) # will factor
+table(train_clean$OCCUPATION_TYPE) # too many levels to want to factor
+table(train_clean$WEEKDAY_APPR_PROCESS_START) # could factor. Not sure why this would impact target
+ # too many levels that do not make much sense as levels
+table(train_clean$FONDKAPREMONT_MODE) # not sure what this one means
+table(train_clean$HOUSETYPE_MODE) # could factor
+table(train_clean$WALLSMATERIAL_MODE) # could factor if we really want
+table(train_clean$EMERGENCYSTATE_MODE) # could if we want. Lots of nulls
+
+# Decided that I am just going to factor every character variable. Because otherwise the character variables will not be very much use to us. We can decide later which variables to use
+# Now lets do some factoring of those variables
+train_clean <- train_clean |> 
+  mutate(across(where(is.character), as.factor))
+
+str(train_clean$NAME_CONTRACT_TYPE) # double checking that it worked
+
+
+# Now we want to find correlations between the remaining variables and the target variable to potentially identify 
+cor(train_clean$TARGET, train_clean$AMT_INCOME_TOTAL)
+cor(train_clean$TARGET, train_clean$AMT_CREDIT)
+cor(train_clean$TARGET, train_clean$AMT_ANNUITY, use = "complete.obs")
+cor(train_clean$TARGET, train_clean$DAYS_BIRTH)
+cor(train_clean$TARGET, train_clean$CNT_FAM_MEMBERS, use = "complete.obs")
+
+
+str(train_clean$EXT_SOURCE_1)
+str(train_clean$AMT_INCOME_TOTAL)
+str(train_clean$AMT_ANNUITY)
+
+# Now we are going to bin the three credit score variables due to the NA count
+summary(train_clean$EXT_SOURCE_1)
+train_clean <- train_clean |>
+  mutate(EXT_SOURCE_1 = case_when(
+    is.na(EXT_SOURCE_1) ~ "Missing",
+    EXT_SOURCE_1 < 0.25 ~ "Low",
+    EXT_SOURCE_1 < 0.50 ~ "Medium",
+    EXT_SOURCE_1 < 0.75 ~ "High",
+    EXT_SOURCE_1 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+summary(train_clean$EXT_SOURCE_3)
+
+# We are going to do this for the other two credit score variables as well
+train_clean <- train_clean |>
+  mutate(EXT_SOURCE_2 = case_when(
+    is.na(EXT_SOURCE_2) ~ "Missing",
+    EXT_SOURCE_2 < 0.25 ~ "Low",
+    EXT_SOURCE_2 < 0.50 ~ "Medium",
+    EXT_SOURCE_2 < 0.75 ~ "High",
+    EXT_SOURCE_2 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+train_clean <- train_clean |>
+  mutate(EXT_SOURCE_3 = case_when(
+    is.na(EXT_SOURCE_3) ~ "Missing",
+    EXT_SOURCE_3 < 0.25 ~ "Low",
+    EXT_SOURCE_3 < 0.50 ~ "Medium",
+    EXT_SOURCE_3 < 0.75 ~ "High",
+    EXT_SOURCE_3 < 1.0 ~ "Very High" 
+    )  |> factor(levels = c("Missing", "Low", "Medium", "High", "Very High")))
+```
+
+## Summary Tables and Graphs
+In this code block we will make some figures to give us insights about the data
+```{r}
+# First lets make a summary table of average target score grouped by contract type and by gender
+train_clean |>
+  group_by(NAME_CONTRACT_TYPE, CODE_GENDER) |>
+  summarise(avg_target = mean(TARGET))
+# This table shows us that the highest average target score for clients with payment difficulties are males with cash loans at 0.106. 
+
+# Now lets make a summary table of average target score grouped by education type and the region rating
+train_clean |>
+  group_by(NAME_EDUCATION_TYPE, REGION_RATING_CLIENT) |>
+  summarise(avg_target = mean(TARGET))
+
+# It would be helpful if I knew if a region rating of 3 was the worst or the best. However, it is clear that the avg target rating is higher for people with less education
+
+# The last table will be average target score by the family status and housing type of the client
+train_clean |>
+  group_by(NAME_FAMILY_STATUS, NAME_HOUSING_TYPE) |>
+  summarise(avg_target = mean(TARGET))
+
+# Most of the averages are in a similar range in this table, but rented apartment seems to be pretty high. The highest average is an individual who is separated and in an co-op apartment. 
+
+
+# Now the Graphs
+
+# First I want to see the distribution of the target score over one of the external score bins
+train_clean |>
+  group_by(EXT_SOURCE_1, CODE_GENDER) |>
+  summarise(avg_target = mean(TARGET)) |>
+  ggplot(aes(x = EXT_SOURCE_1, y = avg_target, col = CODE_GENDER)) +
+  geom_point() +
+  labs(title = "Average Target Score by External Credit Score and Gender")
+
+# This graph shows the average target score for each gender over the external score bins. People with a low score have the highest average target value. As the score gets higher, the average target decreases. 
+
+# Now lets look target score by the income of the client
+train_clean |>
+  ggplot(aes(y = AMT_INCOME_TOTAL)) +
+  geom_boxplot() +
+  labs(title = "Income Distribution by Target") +
+  facet_wrap(~TARGET) +
+  theme_minimal()
+
+# This graph is not great. It shows that the income distribution is very skewed by a couple very high incomes
+
+# The last graph will be the average target score by education type and region rating
+train_clean |>
+  group_by(REGION_RATING_CLIENT_W_CITY, NAME_EDUCATION_TYPE) |>
+  summarise(avg_target = mean(TARGET)) |>
+  ggplot(aes(x = REGION_RATING_CLIENT_W_CITY, y = avg_target, col = factor(NAME_EDUCATION_TYPE))) +
+  geom_point() +
+  labs(title = "Average Target Score by Education Level and the Region Rating")
+
+# I think this graph is interesting to look at because region rating seems to have a clear positive relationship with the Target variable. In addition, the lower secondary education type is the highest for each region level. 
+```
+
+## Looking at and Cleaning bureau data
+```{r, echo=TRUE, results='hide'}
+summary(bureau)
+
+# We need to aggregate the data so we can do a 1 to 1 join with the cleaned train data. However, we want to clean the bureau data first
+
+# First lets remove the variables with majority NAs
+bureau_clean <- bureau |> 
+  select(-AMT_ANNUITY, -AMT_CREDIT_MAX_OVERDUE)
+
+# Finally lets make the character variables factors
+bureau_clean <- bureau_clean |> 
+  mutate(across(where(is.character), as.factor))
+  
+# Now lets make the date variables positive
+bureau_clean <- bureau_clean |>
+  mutate(across(c(DAYS_CREDIT, DAYS_CREDIT_ENDDATE, DAYS_ENDDATE_FACT, DAYS_CREDIT_UPDATE), abs))
+# For numeric we will take the average of numeric variables and add a n() variable. For categorical we will take the mode
+# Here is a mode function
+mode <- function(x) {
+  ux <- unique(na.omit(x))  # Remove NA values
+  ux[which.max(tabulate(match(x, ux)))]  # Find most frequent value
+}
+
+bureau_agg <- bureau_clean |>
+  group_by(SK_ID_CURR) |>
+  summarise(
+    num_credits = n(),
+    credit_active = mode(CREDIT_ACTIVE),
+    credit_currency = mode(CREDIT_CURRENCY),
+    avg_days_credit = mean(DAYS_CREDIT),
+    avg_credit_day_overdue = mean(CREDIT_DAY_OVERDUE),
+    avg_days_credit_enddate = mean(DAYS_CREDIT_ENDDATE),
+    avg_days_enddate_fact = mean(DAYS_ENDDATE_FACT),
+    avg_cnt_credit_prolong = mean(CNT_CREDIT_PROLONG),
+    avg_amt_credit_sum = mean(AMT_CREDIT_SUM),
+    avg_credit_sum_debt = mean(AMT_CREDIT_SUM_DEBT),
+    avg_credit_sum_limit = mean(AMT_CREDIT_SUM_LIMIT),
+    avg_credit_sum_overdue = mean(AMT_CREDIT_SUM_OVERDUE),
+    credit_type = mode(CREDIT_TYPE),
+    avg_days_credit_update = mean(DAYS_CREDIT_UPDATE)
+  )
+
+
+summary(train_clean_bureau$name_con)
+
+
+# Now lets join the datasets
+train_clean_bureau <- train_clean |>
+  left_join(bureau_agg, by = "SK_ID_CURR")
+
+# Turns out we need to do some cleaning of the aggregated data for the bureau columns
+
+# train_clean_bureau <- train_clean_bureau %>%
+#   mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+
+```
+
+## Joined Data and Regression Start
+```{r}
+# Summary table of average debt and credit amount by target status
+train_clean_bureau |>
+  group_by(TARGET) |>
+  summarise(avg_credit_debt = mean(avg_credit_sum_debt, na.rm = TRUE),
+            avg_credit_sum = mean(avg_amt_credit_sum, na.rm = TRUE))
+# This shows that the average credit debt and average current credit are higher for clients without payment difficulties which is surprising. 
+
+# Lets run a regression with just income
+reg <- lm(TARGET ~ AMT_INCOME_TOTAL, data = train_clean_bureau) 
+summary(reg)
+# the income of the client is statistically significant at the 0.05 level
+
+# Second regression with more variables
+reg2 <- lm(TARGET ~ AMT_INCOME_TOTAL + EXT_SOURCE_1 + REGION_RATING_CLIENT + avg_amt_credit_sum, data = train_clean_bureau)
+summary(reg2)
+
+# This regression shows us that income, region rating, and credit amount are statistically significant. The external credit score levels are as well except for medium. However, the levels are being compared to the missing level which is not ideal. I will switch that next notebook. 
+``` 
+
+## Results
+Well there was so much data cleaning to do with the train dataset in particular that I do not have as much results as I would like. However, we definitely learned a lot about the data. I learned that the Target variable is only 1 around 8% of the time. I also learned a lot about relationships between the target and other potential explanatory variables. I found that many of the correlations are small, but when starting to run regressions I am already finding statistically significant variables. The bureau dataset is interesting because it provides a lot of useful Credit Bureau information that the train dataset does not have. The train dataset has a lot of throwaway variables such as the excessive building variables and all the document flags. However, I still need a better way of figuring out which of the remaining variables to include in my future regressions. I will need to find a way to rank the variables based on effect or correlation or something in that regard. Other findings that I had are that people with less education have a higher average target value. In addition, those renting apartments have a comparatively high average target value as well. When I talk about average target value, I am speaking about for a certain group of clients what is the mean of TARGET in that group. Going forward I am going to look to try a logistic regression and load in the other datasets. 
+
+
+
+### Modeling Section
+## Model Split -- also loaded in test data for later
+```{r}
+test <- read.csv("application_test.csv")
+
+# Questions: When to split? After joining all? What is the best way to identify which predictors to use? 
+
+# we need to split the train data so we have a validation set for cross-validation. We will split 70/30
+set.seed(123)
+index <- sample(x = 1:nrow(train_clean_bureau), size = nrow(train_clean_bureau)*.7, replace = F)
+
+# Subset train using index to create a 70% train_fold
+train_bureau_fold <- train_clean_bureau[index, ]
+
+# Subset the remaining rows not included in index to create a 30% validation fold
+validation_bureau_fold <- train_clean_bureau[-index, ]
+
+```
+
+## Now we can do some modeling. Lets run 5 different models and check their performance
+```{r}
+# This one has a random assortment of variables 
+first_model <- glm(TARGET ~ EXT_SOURCE_1 + AMT_INCOME_TOTAL + REGION_RATING_CLIENT + avg_amt_credit_sum, data = train_bureau_fold, family = "binomial")
+
+summary(first_model)
+
+# Model 2 just has data from the train dataset
+second_model <- glm(TARGET ~ EXT_SOURCE_2 + AMT_CREDIT + CODE_GENDER + NAME_CONTRACT_TYPE + CNT_CHILDREN + REGION_RATING_CLIENT + AMT_INCOME_TOTAL, data = train_bureau_fold, family = "binomial")
+
+summary(second_model)
+
+# Third model is going to try and use mostly bureau data
+third_model <- glm(TARGET ~ avg_amt_credit_sum + avg_credit_sum_debt + avg_credit_sum_overdue + credit_type, data = train_bureau_fold, family = "binomial")
+
+summary(third_model)
+
+# Fourth model is everything from above
+fourth_model <- glm(TARGET ~ EXT_SOURCE_1 + AMT_INCOME_TOTAL + AMT_CREDIT + REGION_RATING_CLIENT + avg_amt_credit_sum + avg_credit_sum_debt + avg_credit_sum_overdue + credit_type + EXT_SOURCE_2 + CODE_GENDER + NAME_CONTRACT_TYPE + CNT_CHILDREN, data = train_bureau_fold, family = "binomial")
+
+summary(fourth_model)
+
+# I am thinking the amount of credit on the loan matters more if the credit score is lower, so that might be a good interaction term
+
+# Fifth model with an interaction term for credit score and the credit amount of the loan
+fifth_model <- glm(TARGET ~ EXT_SOURCE_1*AMT_CREDIT + EXT_SOURCE_1 + AMT_CREDIT + AMT_INCOME_TOTAL + REGION_RATING_CLIENT + avg_amt_credit_sum + avg_credit_sum_debt + avg_credit_sum_overdue + credit_type + EXT_SOURCE_2 + CODE_GENDER + NAME_CONTRACT_TYPE + CNT_CHILDREN, data = train_bureau_fold, family = "binomial")
+
+
+summary(fifth_model)
+```
+
+## Performance of the Models -- failing because we still have NAs in bureau data
+```{r}
+# model 1 
+predictions_firstmodel <- predict(first_model, newdata =  validation_bureau_fold)
+pred_class <- ifelse(predictions_firstmodel > 0.5, 1, 0)
+
+accuracy1 <- mean(pred_class == validation_bureau_fold$TARGET)
+print(accuracy1)
+
+sum(is.na(predictions_firstmodel)) 
+
+```
