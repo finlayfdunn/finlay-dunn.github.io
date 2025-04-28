@@ -3,12 +3,13 @@
 Hi Everyone and welcome to my GitHub Portfolio. This README will primarily cover information regarding the Home Credit Loan Default project. However, I have also included my College Basketball Analytics Project from Data Engineering in this portfolio, but the contents of this file do not address it. Feel free to reach out if you have questions about my work on that project. 
 
 **Business Problem and Project Objective**
+
 Regarding the Home Credit assignment, the business problem is that many people in the world today struggle mightily to get loans due to a subpar or absent credit history. This becomes a problem because these people are often too eager and get taken advantage of by dishonest lenders. Home Credit aims to decrease the unbanked population by providing a clear and safe loan experience. The project objective was to unlock the full potential of Home Credit's data. In doing that, we aimed to improve accuracy of accepting clients who are capable of repayment in order to broaden inclusion. We wanted to create a model that accurately predicts whether someone will have payment difficulties on their loan or not. 
 
 **Our Solution**
 We created many different models as you can see in the group modeling file. Note: I included this file because a large percentage of the work in it is my own, and I did not create my own individual file for my modeling work. We created many different models but the best one ended up being our third logistic regression based off many different predictors. Some of the most statistically significant ones were the external credit score levels, credit amount of the loan, and gender. Our solution was for Home Credit to use this model to improve their accuracy at predicting whether a potential customer will have payment problems. 
 
-**My Contribtion**
+**My Contribution**
 My contribution for this project included the large task of data cleaning for each of the 8 datasets as well as aggregations for the datasets like bureau and previous application. They had to be aggregated so that they could be joined to the test data where each application had only one row. Therefore, I was in charge of working with all of the other datasets and getting them joined with our main train data. I was also in charge of combining each group members' R files into one cohesive group file. I also wrote many of the writing sections in our reports and submitted numerous models to Kaggle to get scores. Finally, I helped create our PowerPoint and then gave it to the class with the rest of the group. 
 
 **Business Value of the Solution**
