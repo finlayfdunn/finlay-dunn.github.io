@@ -3,7 +3,6 @@
 Hi Everyone and welcome to my GitHub Portfolio. This README will primarily cover information regarding the Home Credit Loan Default project. However, I have also included my College Basketball Analytics Project from Data Engineering in this portfolio, but the contents of this file do not address it. Feel free to reach out if you have questions about my work on that project. 
 
 **Business Problem and Project Objective**
-
 Regarding the Home Credit assignment, the business problem is that many people in the world today struggle mightily to get loans due to a subpar or absent credit history. This becomes a problem because these people are often too eager and get taken advantage of by dishonest lenders. Home Credit aims to decrease the unbanked population by providing a clear and safe loan experience. The project objective was to unlock the full potential of Home Credit's data. In doing that, we aimed to improve accuracy of accepting clients who are capable of repayment in order to broaden inclusion. We wanted to create a model that accurately predicts whether someone will have payment difficulties on their loan or not. 
 
 **Our Solution**
