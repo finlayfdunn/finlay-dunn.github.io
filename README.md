@@ -2,20 +2,20 @@
 
 Hi Everyone and welcome to my GitHub Portfolio. This README will primarily cover information regarding the Home Credit Loan Default project. However, I have also included my College Basketball Analytics Project from Data Engineering in this portfolio, but the contents of this file do not address it. Feel free to reach out if you have questions about my work on that project. 
 
-**Business Problem and Project Objective**
+**Business Problem and Project Objective:**
 Regarding the Home Credit assignment, the business problem is that many people in the world today struggle mightily to get loans due to a subpar or absent credit history. This becomes a problem because these people are often too eager and get taken advantage of by dishonest lenders. Home Credit aims to decrease the unbanked population by providing a clear and safe loan experience. The project objective was to unlock the full potential of Home Credit's data. In doing that, we aimed to improve accuracy of accepting clients who are capable of repayment in order to broaden inclusion. We wanted to create a model that accurately predicts whether someone will have payment difficulties on their loan or not. 
 
-**Our Solution**
+**Our Solution:**
 We created many different models as you can see in the group modeling file. Note: I included this file because a large percentage of the work in it is my own, and I did not create my own individual file for my modeling work. We created many different models but the best one ended up being our third logistic regression based off many different predictors. Some of the most statistically significant ones were the external credit score levels, credit amount of the loan, and gender. Our solution was for Home Credit to use this model to improve their accuracy at predicting whether a potential customer will have payment problems. 
 
-**My Contribution**
+**My Contribution:**
 My contribution for this project included the large task of data cleaning for each of the 8 datasets as well as aggregations for the datasets like bureau and previous application. They had to be aggregated so that they could be joined to the test data where each application had only one row. Therefore, I was in charge of working with all of the other datasets and getting them joined with our main train data. I was also in charge of combining each group members' R files into one cohesive group file. I also wrote many of the writing sections in our reports and submitted numerous models to Kaggle to get scores. Finally, I helped create our PowerPoint and then gave it to the class with the rest of the group. 
 
-**Business Value of the Solution**
+**Business Value of the Solution:**
 We hope that there is a lot of business value in our solution. The idea is that Home Credit can use our model to predict customer behavior more accurately moving forward. This will lead to them being able to build a larger customer base which will lead to higher profits and a larger market share. In addition, it will hopefully lead to improved risk management and cost reduction for Home Credit as well as they can take less customers that are predicted to default. 
 
-**Difficulties We Encountered**
+**Difficulties We Encountered:**
 We definitely had a lot of difficulties in this project and many of them were at the beginning in the data cleaning process. There was so much data that it was overwhelming at times to know what each column represented. In addition, the aggregation and joining of the other files was a headache. We did not just have difficulties at the beginning of the project, but when tasked with an assignment with messy data from eight different datasets, the majority of the roadblocks always seem to come from cleaning and joining. We also ran into issues when trying to create models such as the Random Forest Model that required some advanced coding. 
 
-**What I Learned**
+**What I Learned:**
 I learned a lot as I worked through this project this semester. This was the most datasets I had ever worked with and joined together in one project before so that required some learning on the fly. I also learned how to make large datasets more understandable including what code to use and how to shrink the data. I also got some practice with binning as a different way of handling missing data. Another aspect of this project that may be helpful moving forward was learning how to work with my two groupmmates who I had never met before. Finally, this was great experience for working on longer projects that span multiple months. 
